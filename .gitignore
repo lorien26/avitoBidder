@@ -1,0 +1,41 @@
+# Основное
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+myenv/
+
+# Логи и базы
+logs/
+*.log
+*.db
+avito_data.db
+
+# Cookies / сессии / секреты
+cookies.json
+.secret.txt
+.env
+.env.*
+# config.json  # локальный конфиг с секретами, не пушим
+
+# IDE
+.idea/
+.vscode/
+
+# Кэш / прочее
+*.sqlite3
+*.tmp
+*.bak
+*.swp
+*.orig
+
+# ОС
+Thumbs.db
+Desktop.ini
+
+# Docker артефакты (если будут генерироваться)
+*.pid
