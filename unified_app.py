@@ -14,6 +14,8 @@ from data_viewer import build_data_viewer
 
 class AvitoManagerApp:
     def __init__(self):
+        from init_ads import init_db_from_config
+        init_db_from_config()
         """Инициализация основных состояний и UI элементов."""
         # Основные состояния приложения
         self.page = None
