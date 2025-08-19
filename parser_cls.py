@@ -270,7 +270,7 @@ class AvitoParse:
         for profile in profiles:
             profile_id, client_id, client_secret, token = profile
             # Получаем объявления для профиля с новыми полями
-            ads = self.db.conn.execute("SELECT id, category, start_price, max_price, target_place_start, target_place_end, comment, url FROM ads WHERE profile_id = ?", (profile_id,)).fetchall()
+            ads = self.db.conn.execute("SELECT id, category, max_price, target_place_start, target_place_end, comment, url FROM ads WHERE profile_id = ? AND active = TRUE", (profile_id,)).fetchall()
             for ad in ads:
                 print("Новая итерация цикла ad in ads")
                 
@@ -284,7 +284,7 @@ class AvitoParse:
                         # Обновляем cookies для нового прокси
                         self.cookies = self.get_cookies(max_retries=2)
                 
-                ad_id, category, start_price, max_price, target_place_start, target_place_end, comment, url = ad
+                ad_id, category, max_price, target_place_start, target_place_end, comment, url = ad
                 # Получаем последнюю цену просмотра из ad_stats (int)
                 last_stat = self.db.conn.execute(
                     "SELECT price FROM ad_stats WHERE ad_id = ? ORDER BY timestamp DESC LIMIT 1",
@@ -294,8 +294,12 @@ class AvitoParse:
                     price_of_view = int(last_stat[0])
                     print("Последняя цена найдена:", price_of_view)
                 else:
-                    print("Последняя цена не найдена")
-                    price_of_view = int(start_price)
+                    print("Последняя цена не найдена, будет использована минимальная ставка")
+                    bid_info = get_bid_info(token, ad_id)
+                    if bid_info and bid_info.get('manual', {}).get('minBidPenny') is not None:
+                        price_of_view = bid_info.get('manual', {}).get('minBidPenny')
+                    else:
+                        price_of_view = 0 # или другое значение по умолчанию
                 current_index = 0
                 target_id = ad_id
                 for pages in range(1, 3):

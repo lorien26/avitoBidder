@@ -39,13 +39,14 @@ def init_db_from_config(config_path: str = "config.json", db_path: str = "avito_
         for url_pair in profile.get("urls", []):
             ad_url = url_pair.get("ad")
             category = url_pair.get("category")
-            start_price = url_pair.get("start_price")
             max_price = url_pair.get("max_price")
             target_place_start = url_pair.get("target_place_start")
             target_place_end = url_pair.get("target_place_end")
             comment = url_pair.get("comment")
+            daily_budget = url_pair.get("daily_budget")
+            active = url_pair.get("active", True)  # По умолчанию True для обратной совместимости
             
-            if not all([ad_url, category, start_price is not None, max_price is not None, 
+            if not all([ad_url, category, max_price is not None, 
                        target_place_start is not None, target_place_end is not None]):
                 print(f"⚠️ Объявление пропущено: не хватает данных: {url_pair}")
                 continue
@@ -57,11 +58,12 @@ def init_db_from_config(config_path: str = "config.json", db_path: str = "avito_
                 'client_id': client_id,
                 'ad_url': ad_url,
                 'category': category,
-                'start_price': int(start_price),
                 'max_price': int(max_price),
                 'target_place_start': int(target_place_start),
                 'target_place_end': int(target_place_end),
-                'comment': comment
+                'comment': comment,
+                'daily_budget': daily_budget,
+                'active': active
             }
     
     print(f"📊 В конфиге найдено: {len(config_profiles)} профилей, {len(config_ads)} объявлений")
@@ -165,23 +167,25 @@ def init_db_from_config(config_path: str = "config.json", db_path: str = "avito_
                 # Обновляем существующее объявление
                 db.conn.execute("""
                     UPDATE ads 
-                    SET category = ?, profile_id = ?, start_price = ?, max_price = ?, 
+                    SET category = ?, profile_id = ?, max_price = ?, 
                         target_place_start = ?, target_place_end = ?, 
-                        comment = ?, url = ?
+                        comment = ?, url = ?, daily_budget = ?, active = ?
                     WHERE id = ?
                 """, (
-                    ad_data['category'], profile_id, ad_data['start_price'], ad_data['max_price'],
+                    ad_data['category'], profile_id, ad_data['max_price'],
                     ad_data['target_place_start'], ad_data['target_place_end'],
-                    ad_data['comment'], ad_data['ad_url'], ad_id
+                    ad_data['comment'], ad_data['ad_url'], ad_data.get('daily_budget'),
+                    ad_data.get('active', True), ad_id
                 ))
                 print(f"  🔄 Обновлено объявление: {ad_id}")
             else:
                 # Создаем новое объявление
                 db.insert_ad(
                     ad_id, ad_data['category'], profile_id,
-                    ad_data['start_price'], ad_data['max_price'], 
+                    ad_data['max_price'], 
                     ad_data['target_place_start'], ad_data['target_place_end'], 
-                    ad_data['comment'], ad_data['ad_url']
+                    ad_data['comment'], ad_data['ad_url'], ad_data.get('daily_budget'),
+                    ad_data.get('active', True)
                 )
                 print(f"  ✅ Добавлено объявление: {ad_id}")
         except Exception as e:
