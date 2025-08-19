@@ -68,7 +68,7 @@ def update_view_price(token: str, item_id: int, new_price: int, limit : int):
             except:
                 return {"success": True}
         else:
-            print(f"❌ Ошибка API: {response.status_code}")
+            print(f"❌ Ошибка API: {response.status_code} , {response.json()}")
             try:
                 error_data = response.json()
                 print(f"Сообщение об ошибке: {error_data.get('message', 'Неизвестная ошибка')}")

@@ -19,7 +19,6 @@ from models import ItemsResponse, Item
 from avito_db import AvitoDB
 from price_manager import check_and_update_prices, get_bid_info
 from init_ads import init_db_from_config
-
 # Отключаем предупреждения SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
