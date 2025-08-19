@@ -1,6 +1,9 @@
 import asyncio
 import random
 import httpx
+import json
+import os
+from datetime import datetime, timedelta
 from loguru import logger
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
@@ -13,6 +16,8 @@ MAX_RETRIES = 3
 RETRY_DELAY = 10
 RETRY_DELAY_WITHOUT_PROXY = 300
 BAD_IP_TITLE = "проблема с ip"
+COOKIES_TTL_MINUTES = 45  # срок годности кеша cookie
+COOKIES_META_FILE = "cookies_meta.json"
 
 
 class PlaywrightClient:
@@ -81,6 +86,13 @@ class PlaywrightClient:
             playwright = await self.playwright_context.__aenter__()
             self.playwright = playwright
 
+            # Рандомизация окна
+            possible_viewports = [
+                (1366, 768), (1440, 900), (1536, 864), (1600, 900), (1920, 1080)
+            ]
+            vw, vh = random.choice(possible_viewports)
+            # Всегда используем headless режим (убрана случайная деактивация)
+            # self.headless оставляем как передано в конструктор
             launch_args = {
                 "headless": self.headless,
                 "chromium_sandbox": False,
@@ -88,8 +100,7 @@ class PlaywrightClient:
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
-                    "--start-maximized",
-                    "--window-size=1920,1080",
+                    f"--window-size={vw},{vh}",
                 ]
             }
 
@@ -97,9 +108,9 @@ class PlaywrightClient:
 
             context_args = {
                 "user_agent": self.user_agent,
-                "viewport": {"width": 1920, "height": 1080},
-                "screen": {"width": 1920, "height": 1080},
-                "device_scale_factor": 1,
+                "viewport": {"width": vw, "height": vh},
+                "screen": {"width": vw, "height": vh},
+                "device_scale_factor": random.choice([1, 1.25, 1.5]),
                 "is_mobile": False,
                 "has_touch": False,
             }
@@ -113,12 +124,9 @@ class PlaywrightClient:
 
             self.context = await self.browser.new_context(**context_args)
             self.page = await self.context.new_page()
-            # block images, not use now
-            #await self.page.route("**/*", lambda route, request: asyncio.create_task(self._block_images(route, request)))
             await self._stealth(self.page)
         except Exception as e:
             logger.error(f"Ошибка при запуске браузера: {e}")
-            # Очистка частично инициализированных ресурсов
             await self._cleanup_on_error()
             raise
 
@@ -143,10 +151,19 @@ class PlaywrightClient:
             pass
 
     async def load_page(self, url: str):
-        await self.page.goto(url=url,
-                             timeout=60_000,
-                             wait_until="domcontentloaded")
+        await self.page.goto(url=url, timeout=60_000, wait_until="domcontentloaded")
 
+        # Эмуляция поведения: скролл и небольшая навигация
+        try:
+            for _ in range(random.randint(1, 3)):
+                await self.page.mouse.move(random.randint(0, self.page.viewport_size['width']-1), random.randint(0, self.page.viewport_size['height']-1), steps=random.randint(4, 12))
+                await asyncio.sleep(random.uniform(0.2, 0.6))
+                await self.page.mouse.wheel(0, random.randint(200, 1200))
+                await asyncio.sleep(random.uniform(0.3, 0.9))
+        except Exception:
+            pass
+
+        # Попытки получить cookie
         for attempt in range(10):
             await self.check_block(self.page, self.context)
             raw_cookie = await self.page.evaluate("() => document.cookie")
@@ -154,7 +171,7 @@ class PlaywrightClient:
             if cookie_dict.get("ft"):
                 logger.info("Cookies получены")
                 return cookie_dict
-            await asyncio.sleep(5)
+            await asyncio.sleep(random.uniform(3.5, 6.0))
 
         logger.warning("Не удалось получить cookies")
         return {}
@@ -191,7 +208,24 @@ class PlaywrightClient:
         title = await page.title()
         logger.info(title)
         if BAD_IP_TITLE in str(title).lower():
-            logger.info("IP заблокирован")
+            logger.info("IP заблокирован, имитирую действия человека.")
+            # Имитация движений мыши
+            try:
+                viewport_size = page.viewport_size
+                if viewport_size:
+                    width, height = viewport_size['width'], viewport_size['height']
+                    start_time = asyncio.get_event_loop().time()
+                    # Двигаем мышь в течение 2-3 секунд
+                    while asyncio.get_event_loop().time() - start_time < random.uniform(2, 3):
+                        await page.mouse.move(
+                            random.randint(0, width - 1),
+                            random.randint(0, height - 1),
+                            steps=random.randint(5, 15) # Делаем движение более плавным
+                        )
+                        await asyncio.sleep(random.uniform(0.2, 0.6))
+            except Exception as e:
+                logger.warning(f"Не удалось имитировать движение мыши: {e}")
+
             await context.clear_cookies()
             await self.change_ip()
             await page.reload(timeout=60*1000)
@@ -205,7 +239,7 @@ class PlaywrightClient:
             try:
                 response = httpx.get(self.proxy_split_obj.change_ip_link, timeout=20)
                 if response.status_code == 200:
-                    logger.info(f"IP изменён на {response.json().get('new_ip')}")
+                    logger.info(f"IP изменён")
                     return True
                 else:
                     logger.warning(f"[{attempt}/{retries}] Ошибка смены IP: {response.status_code}")
@@ -239,12 +273,35 @@ class PlaywrightClient:
 
 
 async def get_cookies(proxy: Proxy = None, headless: bool = True) -> dict:
-    logger.info("Пытаюсь обновить cookies")
+    # Кеширование cookie чтобы не дергать слишком часто
+    try:
+        if os.path.exists(COOKIES_META_FILE):
+            with open(COOKIES_META_FILE, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            ts = meta.get('timestamp')
+            cookies_cached = meta.get('cookies')
+            if ts and cookies_cached:
+                dt = datetime.fromisoformat(ts)
+                if datetime.utcnow() - dt < timedelta(minutes=COOKIES_TTL_MINUTES):
+                    logger.info("Используем кешированные cookies")
+                    return cookies_cached
+    except Exception as e:
+        logger.warning(f"Проблема чтения кеша cookies: {e}")
+
+    logger.info("Пытаюсь обновить cookies через Playwright")
     client = PlaywrightClient(
         proxy=proxy,
         headless=headless
     )
     ads_id = str(random.randint(1111111111, 9999999999))
     cookies = await client.get_cookies(f"https://www.avito.ru/{ads_id}")
+
+    # Сохраняем кеш
+    try:
+        with open(COOKIES_META_FILE, 'w', encoding='utf-8') as f:
+            json.dump({"timestamp": datetime.utcnow().isoformat(), "cookies": cookies}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"Не удалось сохранить кеш cookies: {e}")
+
     return cookies
 

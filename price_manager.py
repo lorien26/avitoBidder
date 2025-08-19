@@ -104,21 +104,6 @@ def check_and_update_prices():
                 ad_id, max_price, target_place_start, target_place_end, comment, url, daily_budget = ad
                 try:
                     # Проверка дневного бюджета
-                    if daily_budget is not None and daily_budget > 0:
-                        today = datetime.date.today()
-                        start_of_day = datetime.datetime.combine(today, datetime.time.min)
-                        
-                        spent_today_result = db.conn.execute(
-                            "SELECT SUM(price) FROM ad_stats WHERE ad_id = ? AND timestamp >= ?",
-                            (ad_id, start_of_day)
-                        ).fetchone()
-                        
-                        spent_today = spent_today_result[0] if spent_today_result and spent_today_result[0] is not None else 0
-                        
-                        if spent_today >= daily_budget:
-                            logger.info(f"Дневной бюджет для объявления {ad_id} ({daily_budget}) исчерпан. Потрачено: {spent_today}. Пропуск.")
-                            continue
-                            
                     last_stat = db.conn.execute(
                         "SELECT position, price FROM ad_stats WHERE ad_id = ? ORDER BY timestamp DESC LIMIT 1",
                         (ad_id,)

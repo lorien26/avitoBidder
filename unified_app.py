@@ -9,7 +9,7 @@ import re
 from collections import deque
 from load_config import load_avito_config
 from config_gui import build_config_editor
-from data_viewer import build_data_viewer
+from data_viewer import build_data_viewer, DataViewer
 
 
 class AvitoManagerApp:
@@ -48,15 +48,27 @@ class AvitoManagerApp:
         page.bgcolor = ft.colors.GREY_900
         page.theme_mode = ft.ThemeMode.DARK
 
+        # Обработчик закрытия окна
+        page.window_destroy = self.on_window_close
+
         self.start_parser_btn = ft.ElevatedButton("Запустить парсер", on_click=self.start_parser, bgcolor=ft.colors.GREEN_600, color=ft.colors.WHITE)
         self.stop_parser_btn = ft.ElevatedButton("Остановить парсер", on_click=self.stop_parser, bgcolor=ft.colors.RED_600, color=ft.colors.WHITE, disabled=True)
 
         self.update_config_info()
         config_view = build_config_editor(page)
         stats_view = build_data_viewer(page)
+        print(stats_view)
+        print(config_view)
 
-        tabs = ft.Tabs(selected_index=0, animation_duration=300, tabs=[
-            ft.Tab(text="Управление", content=self.create_main_tab()),
+        def on_tab_change(e):
+            try:
+                if e.control.selected_index == 2:  # Статистика
+                    stats_view.refresh()
+            except Exception:
+                pass
+
+        tabs = ft.Tabs(selected_index=0, animation_duration=300, on_change=on_tab_change, tabs=[
+            ft.Tab(text="Управление", content=ft.Container(content=self.create_main_tab())),
             ft.Tab(text="Конфигурация", content=ft.Container(content=config_view, padding=10)),
             ft.Tab(text="Статистика", content=ft.Container(content=stats_view, padding=10)),
         ])
@@ -153,7 +165,8 @@ class AvitoManagerApp:
             self.parser_process = None
         e.page.update()
 
-    def stop_parser(self, e):
+    def _shutdown_parser(self):
+        """Безопасно завершает процесс парсера без обновления UI."""
         if not self.is_parser_running or not self.parser_process:
             return
         try:
@@ -161,18 +174,33 @@ class AvitoManagerApp:
                 print("Останавливаем процесс парсера...")
                 self.parser_process.terminate()
                 try:
+                    # Даем процессу шанс завершиться корректно
                     self.parser_process.wait(timeout=5)
-                except Exception:
-                    print("Принудительное завершение процесса парсера")
+                except subprocess.TimeoutExpired:
+                    # Если он не завершился, убиваем его
+                    print("Процесс не ответил на terminate, принудительное завершение...")
                     self.parser_process.kill()
+        except Exception as err:
+            print(f"Ошибка при завершении процесса: {err}")
         finally:
             self.is_parser_running = False
             self.parser_process = None
+            print("Процесс парсера остановлен.")
+
+    def stop_parser(self, e):
+        """Обработчик нажатия кнопки 'Остановить'."""
+        self._shutdown_parser()
+        # Обновляем UI после остановки
+        if self.page:
             self.start_parser_btn.disabled = False
             self.stop_parser_btn.disabled = True
             self.parser_pid_text.value = "PID: —"
-            print("Парсер остановлен")
-            e.page.update()
+            self.page.update()
+
+    def on_window_close(self, e):
+        """Обработчик закрытия окна приложения."""
+        print("Окно закрывается, завершаем дочерние процессы...")
+        self._shutdown_parser()
 
     def _stream_parser_output(self):
         if not self.parser_process or not self.parser_process.stdout:

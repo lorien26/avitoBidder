@@ -3,6 +3,7 @@ import sqlite3
 import math
 from datetime import datetime, timedelta
 from price_manager import get_bid_info
+from avito_api import get_account_balance
 import threading
 
 DB_PATH = 'avito_data.db'
@@ -788,67 +789,76 @@ class ProfileView(ft.UserControl):
         super().__init__()
         self.profile = profile
         self.ads = ads
-        self.ads_container = self._create_ads_view()
+        self.ads_container = self._create_ads_view()  # метод теперь существует ниже
         self.ads_container.visible = False
         self.toggle_icon = ft.Icon(ft.icons.ARROW_RIGHT, color=ft.colors.WHITE)
+        self.balance_text = ft.Text("Баланс: …", size=14, color=ft.colors.WHITE70)
 
     def _create_ads_view(self):
-        """Создает контейнер со списком объявлений."""
-        # Создаем общий заголовок таблицы в стиле основного дизайна
+        """Создает таблицу объявлений (заголовок + строки)."""
         header_row = ft.Container(
             content=ft.Row([
                 ft.Container(ft.Text("ID", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=100, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Категория", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=180, alignment=ft.alignment.center),
-                ft.Container(ft.Text("Максимальная цена", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
+                ft.Container(ft.Text("Макс цена", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Целевой диапазон", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Текущая цена", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
-                ft.Container(ft.Text("Место в выдаче", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
+                ft.Container(ft.Text("Место", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Min ставка", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Обновлено", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=120, alignment=ft.alignment.center),
-                ft.Container(ft.Text("Комментарий", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=120, alignment=ft.alignment.center),
+                ft.Container(ft.Text("Комментарий", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=180, alignment=ft.alignment.center),
             ], spacing=5),
-            bgcolor=ft.colors.GREY_700,  # Темнее для выделения заголовка
+            bgcolor=ft.colors.GREY_700,
             padding=ft.padding.symmetric(horizontal=12, vertical=8),
             border_radius=ft.border_radius.only(top_left=6, top_right=6),
-            border=ft.border.only(bottom=ft.BorderSide(1, ft.colors.GREY_600))  # Только нижняя граница
+            border=ft.border.only(bottom=ft.BorderSide(1, ft.colors.GREY_600))
         )
-        
-        # Создаем контейнер для всей таблицы с правильными скруглениями
-        ads_items = [AdItem(ad, self.profile['token']) for ad in self.ads]
+        ads_items = [AdItem(ad, self.profile.get('token')) for ad in self.ads]
         table_container = ft.Container(
             content=ft.Column(controls=[
                 header_row,
-                ft.Column(controls=ads_items, spacing=0)  # Убираем промежутки между строками
+                ft.Column(controls=ads_items, spacing=0)
             ], spacing=0),
             border_radius=6,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,  # Обрезаем содержимое по границам
-            border=ft.border.all(2, ft.colors.GREY_600)  # Общая обводка таблицы
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            border=ft.border.all(2, ft.colors.GREY_600)
         )
-        
-        return ft.Container(
-            content=table_container,
-            padding=ft.padding.only(top=5)
-        )
+        return ft.Container(content=table_container, padding=ft.padding.only(top=5))
 
     def _toggle_ads(self, e):
-        """Переключает видимость объявлений и иконку."""
         self.ads_container.visible = not self.ads_container.visible
         self.toggle_icon.name = ft.icons.ARROW_DROP_DOWN if self.ads_container.visible else ft.icons.ARROW_RIGHT
         self.update()
 
+    def refresh_balance(self):
+        token = self.profile.get('token')
+        balance = None
+        try:
+            balance = get_account_balance(token)
+        except Exception:
+            balance = None
+        if balance is None:
+            self.balance_text.value = "Баланс: недоступен"
+            self.balance_text.color = ft.colors.ORANGE_300
+            self.balance_text.tooltip = "API баланс недоступен для данного токена"
+        else:
+            self.balance_text.value = f"Баланс: {balance:,.2f} ₽".replace(',', ' ')
+            self.balance_text.color = ft.colors.WHITE70
+            self.balance_text.tooltip = None
+        self.update()
+
     def build(self):
-        """Строит виджет для одного профиля."""
         profile_header = ft.Container(
             content=ft.Row([
                 self.toggle_icon,
                 ft.Text(f"Профиль: {self.profile['name'] or self.profile['client_id']}", size=18, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE),
-            ]),
+                self.balance_text,
+            ], spacing=15),
             on_click=self._toggle_ads,
             padding=10,
             border_radius=8,
             ink=True,
         )
-
         return ft.Container(
             content=ft.Column([
                 profile_header,
@@ -861,56 +871,50 @@ class ProfileView(ft.UserControl):
             bgcolor=ft.colors.GREY_800
         )
 
-def build_data_viewer(page: ft.Page) -> ft.Control:
-    """Строит и возвращает контрол для просмотра данных (без запуска ft.app).
+class DataViewer(ft.UserControl):
+    def __init__(self, page: ft.Page):
+        super().__init__()
+        self.page = page
+        self.main_column = ft.Column(spacing=8, alignment=ft.MainAxisAlignment.START)
+        self.refresh_button = ft.IconButton(icon=ft.icons.REFRESH, tooltip="Обновить данные", on_click=self._build_view)
+        self.title_row = ft.Row([
+            ft.Text("Данные из базы avito_data.db", size=24, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE),
+            self.refresh_button
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        self._build_view()
 
-    Используется в едином интерфейсе. Сохраняет поведение standalone версии.
-    """
+    def show_loading(self):
+        self.main_column.controls.clear()
+        self.main_column.controls.append(ft.Row([ft.ProgressRing(), ft.Text("Загрузка данных...", color=ft.colors.WHITE)], alignment=ft.MainAxisAlignment.CENTER, spacing=10))
+        self.update()
+
+    def _build_view(self, e=None):
+        self.show_loading()
+        all_data = get_all_data()
+        self.main_column.controls.clear()
+        if not all_data:
+            self.main_column.controls.append(ft.Text("В базе данных нет профилей. Заполните ее и обновите страницу.", size=16, text_align="center", color=ft.colors.WHITE))
+        else:
+            profile_views = [ProfileView(item['profile'], item['ads']) for item in all_data]
+            self.main_column.controls.extend(profile_views)
+            for pv in profile_views:
+                threading.Thread(target=pv.refresh_balance, daemon=True).start()
+        self.update()
+
+    def refresh(self):
+        self._build_view()
+
+    def build(self):
+        return ft.Column([self.title_row, self.main_column])
+
+# Фабрика
+
+def build_data_viewer(page: ft.Page) -> DataViewer:
     page.scroll = ft.ScrollMode.ADAPTIVE
     page.padding = 20
-    page.bgcolor = ft.colors.GREY_900  # Темный фон страницы
-    page.theme_mode = ft.ThemeMode.DARK  # Темная тема
-
-    def show_loading():
-        """Отображает индикатор загрузки в основной колонке."""
-        main_column.controls.clear()
-        main_column.controls.append(
-            ft.Row(
-                [ft.ProgressRing(), ft.Text("Загрузка данных...", color=ft.colors.WHITE)],
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=10
-            )
-        )
-        page.update()
-
-    def build_view(e=None):
-        """Создает и отображает виджеты на основе данных из БД."""
-        show_loading()
-        all_data = get_all_data()
-        main_column.controls.clear()
-        if not all_data:
-            main_column.controls.append(ft.Text("В базе данных нет профилей. Заполните ее и обновите страницу.", size=16, text_align="center", color=ft.colors.WHITE))
-        else:
-            main_column.controls.extend([ProfileView(item['profile'], item['ads']) for item in all_data])
-        page.update()
-
-    refresh_button = ft.IconButton(
-        icon=ft.icons.REFRESH,
-        tooltip="Обновить данные",
-        on_click=build_view
-    )
-    
-    title_row = ft.Row([
-        ft.Text("Данные из базы avito_data.db", size=24, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE),
-        refresh_button
-    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-    main_column = ft.Column(spacing=8, alignment=ft.MainAxisAlignment.START)
-
-    root = ft.Column([title_row, main_column])
-    # Первоначальная загрузка данных при старте
-    build_view()
-    return root
+    page.bgcolor = ft.colors.GREY_900
+    page.theme_mode = ft.ThemeMode.DARK
+    return DataViewer(page)
 
 def main(page: ft.Page):
     page.title = "Просмотр данных Avito"
