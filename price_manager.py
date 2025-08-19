@@ -74,7 +74,7 @@ def update_view_price(token: str, item_id: int, new_price: int):
             except:
                 return {"success": True}
         else:
-            print(f"❌ Ошибка API: {response.status_code}")
+            print(f"❌ Ошибка API: {response.status_code} , {response.json()}")
             try:
                 error_data = response.json()
                 print(f"Сообщение об ошибке: {error_data.get('message', 'Неизвестная ошибка')}")
@@ -133,7 +133,8 @@ def check_and_update_prices():
                     if min_bid is None:
                         # Страховка от отсутствия ключа
                         min_bid = 0
-
+                    print("min bid: ", min_bid)
+                    min_bid += 50
                     # ВНЕ целевой зоны – корректируем агрессивно
                     if not (target_place_start <= current_place <= target_place_end):
                         if current_place > target_place_end:  # Слишком низко – повышаем

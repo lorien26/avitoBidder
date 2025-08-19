@@ -15,6 +15,22 @@
           "comment": "Электроскрипка. Ночь"
         }
       ]
+    },
+    {
+      "client_id": "P9DyfpW2iW1sJrKlWlYh",
+      "client_secret": "wYjna2lpM8GteNynuB01qjYBMGAWCX8yKOuXXR9n",
+      "name": "Максим Иван Бойлеры",
+      "urls": [
+        {
+          "ad": "https://www.avito.ru/voronezh/predlozheniya_uslug/remont_elektricheskih_boylerov_i_vodonagrevateley_7563760933",
+          "category": "https://www.avito.ru/voronezh/predlozheniya_uslug?cd=1&q=бойлер+водонагреватель",
+          "start_price": 500,
+          "max_price": 1200,
+          "target_place_start": 5,
+          "target_place_end": 15,
+          "comment": "Воронеж бойлеры"
+        }
+      ]
     }
   ],
   "mobile_proxies": [
