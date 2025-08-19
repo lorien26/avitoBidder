@@ -70,8 +70,9 @@ def build_config_editor(page: ft.Page) -> ft.Control:
         for p in profile_controls:
             urls = []
             for url_row in p["urls"]:
-                # Умножаем max_price на 100 при сохранении
+                # Умножаем max_price и daily_budget на 100 при сохранении
                 max_price_val = safe_int(url_row["max_price"].value) * 100
+                daily_budget_val = safe_int(url_row["daily_budget"].value) * 100
                 
                 urls.append({
                     "ad": url_row["ad"].value,
@@ -80,7 +81,7 @@ def build_config_editor(page: ft.Page) -> ft.Control:
                     "target_place_start": safe_int(url_row["target_place_start"].value),
                     "target_place_end": safe_int(url_row["target_place_end"].value),
                     "comment": url_row["comment"].value,
-                    "daily_budget": safe_int(url_row["daily_budget"].value),
+                    "daily_budget": daily_budget_val,
                     "active": url_row["active"].value
                 })
             new_profiles.append({
@@ -145,7 +146,7 @@ def build_config_editor(page: ft.Page) -> ft.Control:
         )
         daily_budget = ft.TextField(
             label="daily_budget",
-            value=str(url_data.get("daily_budget", "")),
+            value=str(url_data.get("daily_budget", 0) // 100 if url_data.get("daily_budget") else ""),
             width=100,
             on_change=lambda e: update_config_buffer(),
             input_filter=ft.NumbersOnlyInputFilter()
