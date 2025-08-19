@@ -54,7 +54,7 @@ def build_config_editor(page: ft.Page) -> ft.Control:
             if not url_row["ad"].value.strip() or not url_row["category"].value.strip():
                 return False
             # Проверяем, что числовые поля действительно числа и не пустые
-            for key in ["start_price", "max_price", "target_place_start", "target_place_end"]:
+            for key in ["max_price", "target_place_start", "target_place_end"]:
                 val = url_row[key].value.strip()
                 if val == "" or not val.isdigit():
                     return False
@@ -70,18 +70,18 @@ def build_config_editor(page: ft.Page) -> ft.Control:
         for p in profile_controls:
             urls = []
             for url_row in p["urls"]:
-                # Умножаем start_price и max_price на 100 при сохранении
-                start_price_val = safe_int(url_row["start_price"].value) * 100
+                # Умножаем max_price на 100 при сохранении
                 max_price_val = safe_int(url_row["max_price"].value) * 100
                 
                 urls.append({
                     "ad": url_row["ad"].value,
                     "category": url_row["category"].value,
-                    "start_price": start_price_val,
                     "max_price": max_price_val,
                     "target_place_start": safe_int(url_row["target_place_start"].value),
                     "target_place_end": safe_int(url_row["target_place_end"].value),
-                    "comment": url_row["comment"].value
+                    "comment": url_row["comment"].value,
+                    "daily_budget": safe_int(url_row["daily_budget"].value),
+                    "active": url_row["active"].value
                 })
             new_profiles.append({
                 "client_id": p["client_id"].value,
@@ -116,13 +116,6 @@ def build_config_editor(page: ft.Page) -> ft.Control:
             width=200,
             on_change=lambda e: update_config_buffer()
         )
-        start_price = ft.TextField(
-            label="start_price",
-            value=str(url_data.get("start_price", 0) // 100 if url_data.get("start_price") else ""),
-            width=100,
-            on_change=lambda e: update_config_buffer(),
-            input_filter=ft.NumbersOnlyInputFilter()
-        )
         max_price = ft.TextField(
             label="max_price", 
             value=str(url_data.get("max_price", 0) // 100 if url_data.get("max_price") else ""),
@@ -150,14 +143,27 @@ def build_config_editor(page: ft.Page) -> ft.Control:
             width=200,
             on_change=lambda e: update_config_buffer()
         )
+        daily_budget = ft.TextField(
+            label="daily_budget",
+            value=str(url_data.get("daily_budget", "")),
+            width=100,
+            on_change=lambda e: update_config_buffer(),
+            input_filter=ft.NumbersOnlyInputFilter()
+        )
+        active_switch = ft.Switch(
+            label="Active",
+            value=url_data.get("active", True),
+            on_change=lambda e: update_config_buffer()
+        )
         row = {
             "ad": ad,
             "category": category,
-            "start_price": start_price,
             "max_price": max_price,
             "target_place_start": target_place_start,
             "target_place_end": target_place_end,
-            "comment": comment
+            "comment": comment,
+            "daily_budget": daily_budget,
+            "active": active_switch
         }
         row_controls = None
         def delete_url_row(e):
@@ -168,8 +174,8 @@ def build_config_editor(page: ft.Page) -> ft.Control:
             update_config_buffer()
             page.update()
         row_controls = ft.Row([
-            ad, category, start_price, max_price, target_place_start, target_place_end,
-            comment, ft.IconButton(icon=ft.icons.DELETE, on_click=delete_url_row)
+            ad, category, max_price, target_place_start, target_place_end,
+            comment, daily_budget, active_switch, ft.IconButton(icon=ft.icons.DELETE, on_click=delete_url_row)
         ])
         urls_column.controls.append(row_controls)
         return row

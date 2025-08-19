@@ -40,15 +40,38 @@ class AvitoDB:
                 id TEXT PRIMARY KEY,
                 category TEXT,
                 profile_id INTEGER,
-                start_price INTEGER,
                 max_price INTEGER,
                 target_place_start INTEGER,
                 target_place_end INTEGER,
                 comment TEXT,
                 url TEXT,
+                daily_budget INTEGER,
+                active BOOLEAN DEFAULT TRUE,
                 FOREIGN KEY(profile_id) REFERENCES profiles(id)
             )
         ''')
+        # Проверяем, существует ли колонка 'daily_budget'
+        cursor.execute("PRAGMA table_info(ads)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'daily_budget' not in columns:
+            try:
+                cursor.execute('ALTER TABLE ads ADD COLUMN daily_budget INTEGER')
+                self.conn.commit()
+                print("Столбец 'daily_budget' успешно добавлен в таблицу 'ads'.")
+            except sqlite3.OperationalError as e:
+                # Это может произойти в конкурентной среде, если другая сессия уже добавила столбец
+                if "duplicate column name" not in str(e):
+                    raise
+        
+        if 'active' not in columns:
+            try:
+                cursor.execute('ALTER TABLE ads ADD COLUMN active BOOLEAN DEFAULT TRUE')
+                self.conn.commit()
+                print("Столбец 'active' успешно добавлен в таблицу 'ads'.")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    raise
+
         # История стоимости и позиций
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ad_stats (
@@ -76,12 +99,12 @@ class AvitoDB:
         row = cursor.fetchone()
         return row[0] if row else None
 
-    def insert_ad(self, ad_id: str, category: str, profile_id: int, start_price: int = None, max_price: int = None, target_place_start: int = None, target_place_end: int = None, comment: str = None, url: str = None):
+    def insert_ad(self, ad_id: str, category: str, profile_id: int, max_price: int = None, target_place_start: int = None, target_place_end: int = None, comment: str = None, url: str = None, daily_budget: int = None, active: bool = True):
         cursor = self.conn.cursor()
         cursor.execute('''
-            INSERT OR IGNORE INTO ads (id, category, profile_id, start_price, max_price, target_place_start, target_place_end, comment, url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (ad_id, category, profile_id, start_price, max_price, target_place_start, target_place_end, comment, url))
+            INSERT OR IGNORE INTO ads (id, category, profile_id, max_price, target_place_start, target_place_end, comment, url, daily_budget, active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (ad_id, category, profile_id, max_price, target_place_start, target_place_end, comment, url, daily_budget, active))
         self.conn.commit()
 
     def insert_ad_stat(self, ad_id: str, price: int, position: int, timestamp: Optional[datetime.datetime] = None):

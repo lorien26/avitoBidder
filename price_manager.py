@@ -1,18 +1,14 @@
 import requests
 from loguru import logger
 from avito_db import AvitoDB
+import datetime
 
 def get_bid_info(token: str, item_id: int):
-    """Получает информацию о доступных ставках и лимитах для объявления"""
     url = f"https://api.avito.ru/cpxpromo/1/getBids/{item_id}"
-    headers = {
-        "Authorization": f"Bearer {token}",
-    }
+    headers = {"Authorization": f"Bearer {token}"}
     
     try:
         response = requests.get(url, headers=headers)
-        # print(f"Status Code: {response.status_code}")
-        # print(f"Response Text: {response.text}")
         
         if response.status_code == 200:
             return response.json()
@@ -24,7 +20,7 @@ def get_bid_info(token: str, item_id: int):
         print(f"❌ Ошибка при получении информации о ставках: {e}")
         return None
 
-def update_view_price(token: str, item_id: int, new_price: int):
+def update_view_price(token: str, item_id: int, new_price: int, limit : int):
     url = "https://api.avito.ru/cpxpromo/1/setManual"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -35,6 +31,7 @@ def update_view_price(token: str, item_id: int, new_price: int):
         "actionTypeID": 5,
         "bidPenny": new_price,
         "itemID": item_id,
+        "limitPenny": limit
     }
     
     try:
@@ -47,7 +44,6 @@ def update_view_price(token: str, item_id: int, new_price: int):
             print("✅ Цена успешно обновлена")
             db = AvitoDB()
             try:
-                # Находим ID последней записи статистики для данного объявления
                 latest_stat = db.conn.execute(
                     "SELECT id FROM ad_stats WHERE ad_id = ? ORDER BY timestamp DESC LIMIT 1",
                     (item_id,)
@@ -55,7 +51,6 @@ def update_view_price(token: str, item_id: int, new_price: int):
                 
                 if latest_stat:
                     latest_stat_id = latest_stat[0]
-                    # Обновляем цену в этой записи
                     db.conn.execute(
                         "UPDATE ad_stats SET price = ? WHERE id = ?",
                         (new_price, latest_stat_id)
@@ -68,7 +63,6 @@ def update_view_price(token: str, item_id: int, new_price: int):
                 print(f"❌ Ошибка при обновлении цены в базе данных: {e}")
             finally:
                 db.close()
-            # API может вернуть пустой ответ при успешном обновлении
             try:
                 return response.json() if response.text.strip() else {"success": True}
             except:
@@ -87,8 +81,6 @@ def update_view_price(token: str, item_id: int, new_price: int):
         return None
 
 def check_and_update_prices():
-    """Проверяет позиции объявлений и обновляет цены при необходимости.
-    Добавлена устойчивость к ошибкам, подробное логирование и защита от незаданной переменной new_price."""
     try:
         from token_utils import refresh_tokens_for_all_profiles
         try:
@@ -104,13 +96,29 @@ def check_and_update_prices():
         for profile in profiles:
             profile_id, token = profile
             ads = db.conn.execute(
-                "SELECT id, start_price, max_price, target_place_start, target_place_end, comment, url FROM ads WHERE profile_id = ?",
+                "SELECT id, max_price, target_place_start, target_place_end, comment, url, daily_budget FROM ads WHERE profile_id = ? AND active = TRUE",
                 (profile_id,)
             ).fetchall()
 
             for ad in ads:
-                ad_id, start_price, max_price, target_place_start, target_place_end, comment, url = ad
+                ad_id, max_price, target_place_start, target_place_end, comment, url, daily_budget = ad
                 try:
+                    # Проверка дневного бюджета
+                    if daily_budget is not None and daily_budget > 0:
+                        today = datetime.date.today()
+                        start_of_day = datetime.datetime.combine(today, datetime.time.min)
+                        
+                        spent_today_result = db.conn.execute(
+                            "SELECT SUM(price) FROM ad_stats WHERE ad_id = ? AND timestamp >= ?",
+                            (ad_id, start_of_day)
+                        ).fetchone()
+                        
+                        spent_today = spent_today_result[0] if spent_today_result and spent_today_result[0] is not None else 0
+                        
+                        if spent_today >= daily_budget:
+                            logger.info(f"Дневной бюджет для объявления {ad_id} ({daily_budget}) исчерпан. Потрачено: {spent_today}. Пропуск.")
+                            continue
+                            
                     last_stat = db.conn.execute(
                         "SELECT position, price FROM ad_stats WHERE ad_id = ? ORDER BY timestamp DESC LIMIT 1",
                         (ad_id,)
@@ -130,30 +138,25 @@ def check_and_update_prices():
                         logger.debug(f"Нет bid_info для {ad_id}")
                         continue
                     min_bid = bid_info.get('manual', {}).get('minBidPenny')
+                    min_limit = bid_info.get('manual', {}).get('minLimitPenny')
                     if min_bid is None:
-                        # Страховка от отсутствия ключа
                         min_bid = 0
-
-                    # ВНЕ целевой зоны – корректируем агрессивно
                     if not (target_place_start <= current_place <= target_place_end):
-                        if current_place > target_place_end:  # Слишком низко – повышаем
-                            base = int(last_price) if last_price else int(start_price or 0)
+                        if current_place > target_place_end:
+                            base = int(last_price) if last_price else min_bid
                             new_price = max(base + 50, min_bid)
-                        else:  # Слишком высоко – можно уменьшить
-                            base = int(last_price) if last_price else int(start_price or 0)
+                        else:
+                            base = int(last_price) if last_price else min_bid
                             dec = base - 50
                             new_price = max(dec, min_bid)
-                    else:  # В целевой зоне – мягкое снижение если сильно высоко
+                    else:
                         if last_price:
                             new_price = int(last_price)
                         else:
-                            try:
-                                new_price = int(start_price)
-                            except Exception:
-                                new_price = max(min_bid, 0)
+                            new_price = max(min_bid, 0)
                         mid_point = (target_place_start + target_place_end) / 2
                         if current_place <= mid_point:  # слишком высоко внутри зоны
-                            base = int(last_price) if last_price else int(start_price or 0)
+                            base = int(last_price) if last_price else min_bid
                             new_price = max(base - 50, min_bid)
 
                     # Финальные ограничения
@@ -175,8 +178,9 @@ def check_and_update_prices():
                     if last_price is not None and int(last_price) == new_price:
                         logger.debug(f"{ad_id}: цена без изменений ({new_price}) – пропуск обновления")
                         continue
-
-                    result = update_view_price(token, int(ad_id), int(new_price))
+                    if new_price < min_bid:
+                        new_price = min_bid + 50
+                    result = update_view_price(token, int(ad_id), int(new_price), int(max(int(min_limit + 50), int(daily_budget))))
                     if result is None:
                         logger.warning(f"{ad_id}: не удалось обновить цену")
                 except Exception as ad_err:

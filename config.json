@@ -8,19 +8,20 @@
         {
           "ad": "https://www.avito.ru/moskva/muzykalnye_instrumenty/elektroskripka_antonio_lavazza_44_7579176863",
           "category": "https://www.avito.ru/moskva/muzykalnye_instrumenty?f=ASgBAgICAUTEAvRO",
-          "start_price": 300,
           "max_price": 6000,
           "target_place_start": 5,
           "target_place_end": 20,
-          "comment": "Электроскрипка. Ночь"
+          "comment": "Электроскрипка. Ночь",
+          "daily_budget": 70000,
+          "active": true
         }
       ]
     }
   ],
   "mobile_proxies": [
     {
-      "proxy_string": "abxs4rlwya-mobile-country-RU-state-524925-city-6417422-hold-session-session-686feb8f6eb27:6J2Tj6KRMrtapltY@212.8.249.134:9999",
-      "proxy_change_url": "https://api.asocks.com/user/port/refresh/ip/bcaa9e1b-5dab-11f0-97d9-bc24114c89e8",
+      "proxy_string": "user5480:adffutps22roqwwt@p31631.clearproxy.ru:8181",
+      "proxy_change_url": "https://api.multiaccount.ru/api/proxy/switch?user=user5480&password=adffutps22roqwwt",
       "name": "Mobile Proxy 1",
       "active": true
     }

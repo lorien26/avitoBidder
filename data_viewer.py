@@ -2,6 +2,8 @@ import flet as ft
 import sqlite3
 import math
 from datetime import datetime, timedelta
+from price_manager import get_bid_info
+import threading
 
 DB_PATH = 'avito_data.db'
 
@@ -14,7 +16,7 @@ def get_db_connection():
 def get_all_data():
     """Извлекает все профили и связанные с ними объявления из базы данных."""
     with get_db_connection() as conn:
-        profiles = conn.execute("SELECT id, client_id, name FROM profiles").fetchall()
+        profiles = conn.execute("SELECT id, client_id, name, token FROM profiles").fetchall()
         result = []
         for p in profiles:
             ads = conn.execute(
@@ -23,7 +25,6 @@ def get_all_data():
                     a.id,
                     a.category,
                     a.comment,
-                    a.start_price / 100.0 as start_price,
                     a.max_price / 100.0 as max_price,
                     a.target_place_start,
                     a.target_place_end,
@@ -122,10 +123,9 @@ def format_datetime(ts):
     return ts.strftime('%H:%M')
 
 class AdChart(ft.UserControl):
-    def __init__(self, ad_id, start_price):
+    def __init__(self, ad_id):
         super().__init__()
         self.ad_id = ad_id
-        self.start_price = start_price
         # Устанавливаем дату, когда точно есть данные (сегодня)
         self.selected_date = datetime.now().date()
         self.start_hour = 8  # Начальный час (по умолчанию 8:00)
@@ -674,11 +674,13 @@ class AdChart(ft.UserControl):
         )
 
 class AdItem(ft.UserControl):
-    def __init__(self, ad):
+    def __init__(self, ad, token):
         super().__init__()
         self.ad = ad
-        self.chart_view = AdChart(ad['id'], ad['start_price'])
+        self.token = token
+        self.chart_view = AdChart(ad['id'])
         self.is_expanded = False
+        self.min_bid_text = ft.Text("...", size=10, color=ft.colors.WHITE, text_align=ft.TextAlign.CENTER)
 
     def copy_url_to_clipboard(self, e, url):
         """Копирует URL в буфер обмена."""
@@ -724,11 +726,11 @@ class AdItem(ft.UserControl):
                         disabled=not bool(self.ad.get('url')),
                     ), width=100, alignment=ft.alignment.center),
                 ft.Container(ft.Text(str(self.ad['category']), size=10, color=ft.colors.WHITE), width=180, alignment=ft.alignment.center),
-                ft.Container(ft.Text(format_price(self.ad['start_price']), size=10, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text(format_price(self.ad['max_price']), size=10, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text(format_target_range(self.ad['target_place_start'], self.ad['target_place_end']), size=10, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text(format_price(self.ad['current_price']), size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text(str(self.ad['current_place']), size=10, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
+                ft.Container(self.min_bid_text, width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text(format_datetime(self.ad['last_update']), size=10, color=ft.colors.WHITE), width=120, alignment=ft.alignment.center),
                 ft.Container(ft.Text(str(self.ad['comment']), size=10, color=ft.colors.WHITE), width=180, alignment=ft.alignment.center),
                 
@@ -753,8 +755,32 @@ class AdItem(ft.UserControl):
         self.is_expanded = not self.is_expanded
         if self.is_expanded:
             self.chart_view.show()
+            # Запускаем получение min_bid в отдельном потоке, чтобы не блокировать UI
+            threading.Thread(target=self.update_min_bid, daemon=True).start()
         else:
             self.chart_view.hide()
+        self.update()
+
+    def update_min_bid(self):
+        """Получает и обновляет minBidPenny."""
+        if not self.token:
+            self.min_bid_text.value = "No Token"
+            self.update()
+            return
+        
+        try:
+            bid_info = get_bid_info(self.token, self.ad['id'])
+            if bid_info and 'manual' in bid_info and 'minBidPenny' in bid_info['manual']:
+                min_bid = bid_info['manual']['minBidPenny']
+                self.min_bid_text.value = format_price(min_bid / 100.0)
+            else:
+                error_msg = "N/A"
+                if bid_info and 'error' in bid_info:
+                    error_msg = "Error"
+                self.min_bid_text.value = error_msg
+        except Exception as e:
+            self.min_bid_text.value = "Error"
+        
         self.update()
 
 class ProfileView(ft.UserControl):
@@ -773,11 +799,11 @@ class ProfileView(ft.UserControl):
             content=ft.Row([
                 ft.Container(ft.Text("ID", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=100, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Категория", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=180, alignment=ft.alignment.center),
-                ft.Container(ft.Text("Начальная цена", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Максимальная цена", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Целевой диапазон", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Текущая цена", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Место в выдаче", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
+                ft.Container(ft.Text("Min ставка", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=80, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Обновлено", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=120, alignment=ft.alignment.center),
                 ft.Container(ft.Text("Комментарий", size=10, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE), width=120, alignment=ft.alignment.center),
             ], spacing=5),
@@ -788,7 +814,7 @@ class ProfileView(ft.UserControl):
         )
         
         # Создаем контейнер для всей таблицы с правильными скруглениями
-        ads_items = [AdItem(ad) for ad in self.ads]
+        ads_items = [AdItem(ad, self.profile['token']) for ad in self.ads]
         table_container = ft.Container(
             content=ft.Column(controls=[
                 header_row,
